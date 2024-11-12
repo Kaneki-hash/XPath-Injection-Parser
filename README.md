@@ -37,7 +37,7 @@ This script automates the process of parsing the root node and its child nodes u
    ```
 
 3. **Configure the Script:**
-
+   - You may need to modify the code to suit the purpose.
    - Update the `url` variable in the script with the target web application URL.
    - Adjust the `response_time_threshold` variable if needed based on your network and server performance.
 
