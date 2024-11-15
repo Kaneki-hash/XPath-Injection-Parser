@@ -137,5 +137,5 @@ async def main(url, timeout, response_time_threshold, simulate):
 if __name__ == "__main__":
     args = parse_arguments()
     response_time_threshold = args.threshold
-    asyncio.run(main(args.url, args.timeout, response_time_threshold,,.simulate))
+    asyncio.run(main(args.url, args.timeout, response_time_threshold, args.simulate))
 )
