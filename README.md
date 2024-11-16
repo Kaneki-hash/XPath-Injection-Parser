@@ -1,68 +1,172 @@
-# XPath-Injection-Parser
+# 🐍 XPath Injection Framework
 
-## Overview
+[![Python Version](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Security: bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)
 
-This script automates the process of parsing the root node and its child nodes using XPath injection. It is designed to work with web applications that are vulnerable to XPath injection and respond differently based on the validity of the injected XPath queries.
+Продвинутый фреймворк для тестирования XPath-инъекций с использованием современных подходов ООП Python.
 
-## Features
+## 📋 Содержание
 
-- **Determine Root Node Length:** Automatically finds the length of the root node's name.
-- **Extract Root Node Name:** Extracts the name of the root node character by character.
-- **Count Child Nodes:** Counts the number of child nodes under the root node.
-- **Extract Child Node Names:** Extracts the names of the child nodes.
-- **Extract Node Values:** Extracts the values of the child nodes.
-- **Flexible Success Condition:** Checks for "Success" in the response text and measures response time for blind injections.
-- **Customizable Response Time Threshold:** Allows setting a customizable response time threshold for detecting successful injections.
-- **Error and Exception Handling:** Handles network errors and timeouts gracefully.
-- **Optimized Character Enumeration:** Starts with more likely characters first to speed up the process.
+- [Особенности](#особенности)
+- [Установка](#установка)
+- [Использование](#использование)
+- [Архитектура](#архитектура)
+- [API Reference](#api-reference)
+- [Примеры](#примеры)
+- [Участие в разработке](#участие-в-разработке)
+- [Лицензия](#лицензия)
 
-## Prerequisites
+## ✨ Особенности
 
-- Python 3.x
-- `requests` library (`pip install requests`)
+- 🛡️ Различные типы XPath-инъекций
+- 📊 Подробная система отчетности
+- 🔄 Автоматический retry механизм
+- 📝 Расширенное логирование
+- ⚡ Измерение производительности
+- 🔌 Расширяемая архитектура
 
-## Usage
+## 🚀 Установка
 
-1. **Clone the Repository:**
+```bash
+# Клонирование репозитория
+git clone https://github.com/Kaneki-hash/Xpath-Injection-Parser.git
 
-   ```bash
-   git clone https://github.com/Kaneki-hash/XPath-Injection-Parser.git
-   cd XPath-Injection-Parser
-   ```
-
-2. **Install Required Libraries:**
-
-   ```bash
-   pip install requests
-   ```
-
-3. **Configure the Script:**
-   - You may need to modify the code to suit the purpose.
-   - Update the `url` variable in the script with the target web application URL.
-   - Adjust the `response_time_threshold` variable if needed based on your network and server performance.
-
-4. **Run the Script:**
-
-   ```bash
-   python xpath_injection_parser.py
-   ```
-
-## Example Output
-
-```
-Length of the root node's name: 5
-Root node's name: users
-Number of child nodes: 3
-Child node names:
-  - user
-  - user
-  - user
-Child node values:
-  - admin
-  - guest
-  - test
+# Установка зависимостей
+pip install -r requirements.txt
 ```
 
-## Notes
+## 💻 Использование
 
-- **Customization:** You can extend the script to handle more complex XML structures or different types of data by modifying the XPath expressions and character sets.
+```
+python run_injector.py --url https://target.com/login -v 
+```
+
+### Базовый пример
+
+```python
+from xpath_injector import XPathInjector, AutomatedInjector
+
+# Создание инжектора
+injector = XPathInjector("http://target-site.com/login")
+
+# Создание автоматизированного тестировщика
+automated = AutomatedInjector(injector)
+
+# Запуск кампании
+automated.run_campaign()
+
+# Получение отчета
+report = automated.generate_report()
+```
+
+### Расширенный пример
+
+```python
+from xpath_injector import XPathInjector, InjectionType, PayloadGenerator
+
+class CustomPayloadGenerator(PayloadGenerator):
+    def generate(self) -> List[str]:
+        return [
+            "custom_payload_1",
+            "custom_payload_2"
+        ]
+
+injector = XPathInjector("http://target-site.com/login")
+injector.payload_generators[InjectionType.CUSTOM] = CustomPayloadGenerator()
+```
+
+## 🏗️ Архитектура
+
+### Диаграмма классов
+
+```mermaid
+classDiagram
+    class BaseInjector {
+        <<abstract>>
+        +generate_payload()
+        +execute_injection()
+    }
+    class XPathInjector {
+        -target_url: str
+        -session: Session
+        +execute_injection()
+    }
+    class InjectionResult {
+        +success: bool
+        +payload: str
+        +response_data: str
+        +execution_time: float
+    }
+    BaseInjector <|-- XPathInjector
+    XPathInjector --> InjectionResult
+```
+
+## 📚 API Reference
+
+### XPathInjector
+
+```python
+class XPathInjector(BaseInjector, LoggingMixin, TimingMixin):
+    """
+    Основной класс для выполнения XPath-инъекций.
+    
+    Attributes:
+        target_url (str): URL целевого сайта
+        session (requests.Session): Сессия для HTTP-запросов
+        successful_payloads (List[InjectionResult]): Успешные инъекции
+    """
+```
+
+[Полная документация по API](docs/API.md)
+
+## 📝 Примеры
+
+### Тестирование аутентификации
+
+```python
+injector = XPathInjector("http://target-site.com/login")
+result = injector.execute_injection("' or '1'='1")
+
+if result.success:
+    print(f"Уязвимость найдена! Время выполнения: {result.execution_time}")
+```
+
+[Больше примеров](docs/examples/)
+
+## 🤝 Участие в разработке
+
+Мы приветствуем вклад в развитие проекта! Вот как вы можете помочь:
+
+1. Fork репозитория
+2. Создайте ветку для новой функциональности
+   ```bash
+   git checkout -b feature/amazing-feature
+   ```
+3. Commit изменения
+   ```bash
+   git commit -m 'Add amazing feature'
+   ```
+4. Push в ветку
+   ```bash
+   git push origin feature/amazing-feature
+   ```
+5. Создайте Pull Request
+
+## 📄 Лицензия
+
+Распространяется под лицензией MIT. Смотрите [LICENSE](LICENSE) для деталей.
+
+## ⚠️ Отказ от ответственности
+
+Этот инструмент предназначен только для образовательных целей и тестирования собственных систем. Использование против чужих систем без разрешения является незаконным.
+
+## 📦 requirements.txt
+
+```
+requests>=2.26.0
+typing-extensions>=4.0.0
+python-dateutil>=2.8.2
+logging>=0.5.1.2
+```
