@@ -31,7 +31,7 @@
 
 ```bash
 # Клонирование репозитория
-git clone https://github.com/yourusername/xpath-injection-framework.git
+git clone https://github.com/Kaneki-hash/Xpath-Injection-Parser.git
 
 # Установка зависимостей
 pip install -r requirements.txt
