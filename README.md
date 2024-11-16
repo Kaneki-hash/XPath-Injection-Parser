@@ -39,6 +39,10 @@ pip install -r requirements.txt
 
 ## 💻 Использование
 
+```
+python run_injector.py --url https://target.com/login -v 
+```
+
 ### Базовый пример
 
 ```python
@@ -114,8 +118,6 @@ class XPathInjector(BaseInjector, LoggingMixin, TimingMixin):
         successful_payloads (List[InjectionResult]): Успешные инъекции
     """
 ```
-
-Или просто run_injector.py
 
 [Полная документация по API](docs/API.md)
 
